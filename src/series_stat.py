@@ -10,10 +10,12 @@ import scipy as sp
 import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 from scipy.optimize import leastsq as least_squares
+import sklearn as sk
 from sklearn import linear_model
 from sklearn.decomposition import FastICA, PCA
 from matplotlib import mlab
 import math
+import itertools
 
 def serRunAv(y,steps=5):
     """perform a running average"""
@@ -37,6 +39,10 @@ def serRunAvDev(y,nInt=5):
         xf.append(np.mean(x[dn:dn1]))
         yf.append(np.mean(y[dn:dn1]))
     return x, yd, xf, yf
+
+def rem_nan(y):
+    """remove nans"""
+    return [x for x in y if x == x]
 
 def binAvStd(df,col_y="act",col_bin="time"):
     """perform a binned average and standard deviation"""
@@ -90,11 +96,11 @@ def serKalman(y,R=0.01**2):
     return xhat
 
 def addNoise(y,noise=.2):
-    """ add a portion of random gaussian noise"""
+    """add a portion of random gaussian noise"""
     return y*(1.+np.random.randn(len(y))*noise)
 
 def phaseLag(y1,y2):
-    """ returns phase lag between two signals"""
+    """returns phase lag between two signals"""
     t = np.linspace(0.,1.,len(y1))
     # from dot product
     opp = np.sum(y2*y1)
@@ -210,6 +216,36 @@ def xcorM(M,L):
         r = np.correlate(M[i],L[i],"full")
         acM[i] = r
     return acM
+
+def cross_funcM(M,func):
+    """apply a function across all pairs"""
+    M = np.array(M)
+    d = np.zeros((M.shape[1],M.shape[1]))
+    comb = np.array(list(itertools.combinations(range(M.shape[1]),2)))
+    crossL = []
+    for c1,c2 in zip(comb[:,0], comb[:,1]):
+        x, y = M[:,c1], M[:,c2]
+        score = func(x,y)
+        crossL.append(score)
+    d[comb[:,0],comb[:,1]] = crossL
+    d[comb[:,1],comb[:,0]] = crossL
+    return d
+
+def cross_corrM(M):
+    """compute cross entropy between fields"""
+    def func(x,y):
+        return sp.stats.pearsonr(x,y)[0]
+    return cross_funcM(M,func)
+
+def cross_entropyM(M):
+    """compute cross entropy between fields"""
+    return cross_funcM(M,sk.metrics.mutual_info_score)
+
+def applyNextM(M):
+    """apply a function between neighboring columns"""
+    new = np.dstack((M[:,:-1], M[:, 1:]))
+    M1 = np.apply_along_axis(np.sum, 2, new)
+    return M1
 
 def decayM(M):
     """compute decay exponent from auto correlation"""

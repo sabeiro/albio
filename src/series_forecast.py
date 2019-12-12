@@ -8,7 +8,7 @@ import statsmodels.api as sm
 import statsmodels.tsa as tsa
 import scipy.optimize as sco
 from scipy.optimize import curve_fit
-import geomadi.algo_holtwinters as ht
+import albio.algo_holtwinters as ht
 
 ##----------------------------optimization-functions------------------------------
 def ser_poly(p,x):
@@ -105,7 +105,7 @@ def serArma(sDay,nAhead,x0,hWeek):
     # tsa.arima_model._arma_predict_out_of_sample(res.params,steps,res.resid,res.k_ar,res.k_ma,res.k_trend,res.k_exog,endog=dta, exog=None, start=len(dta))
 
 def SerBayes(sDay,nAhead,x0,hWeek):
-    import pydlm    
+    #import pydlm    
     dta = sDay['y']
     dta.index = [pd.datetime.strptime(str(x)[0:10],'%Y-%m-%d') for x in dta.index]
     t_line = [float(calendar.timegm(x.utctimetuple()))/1000000 for x in dta.index]
