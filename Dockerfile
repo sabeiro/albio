@@ -1,10 +1,18 @@
-FROM python:3.6
-WORKDIR /app
-COPY . /
-RUN apt-get update
-RUN apt -y install vim libspatialindex-dev cmake redis redis-server
-RUN pip install -r requirements.txt
-ENV LAV_DIR=$APP_DIR
-EXPOSE $PORT
-EXPOSE 6370-6280
-CMD [ "bash", "src/antani/server.sh" ]
+FROM python:3.7.4-slim-stretch
+
+# Add your envrionment variables
+#ARG ACCESS_KEY_ID
+#ARG SECRET_ACCESS_KEY
+#
+#ENV ACCESS_KEY_ID=$ACCESS_KEY_ID
+#ENV SECRET_ACCESS_KEY=$SECRET_ACCESS_KEY
+
+
+COPY reqs/base.txt .
+RUN pip install -r base.txt
+
+COPY albio .
+RUN python setup.py install && pip install -e .
+
+CMD sh
+

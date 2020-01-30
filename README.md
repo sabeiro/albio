@@ -11,5 +11,20 @@ output:
 
 # Albio
 
-Albio is a time series analysis library for statistical properties calculation and forecasts of time series 
+Albio is a time series analysis library for statistical properties calculation and forecasts 
+
+## modules descriptions
+
+> time series
+
+* `series_load.py`
+	* load and preprocess time series mainly from web services
+* `series_stat.py`
+	* statistical properties and filtering of time series
+* `series_forecast.py`
+	* forecast on time series (arima, holt-winter, bayesian...)
+* `series_neural.py`
+	* forecast based on neural networks
+* `algo_holtwinters.py`
+	* implementation of holt-winters algorithm
 
