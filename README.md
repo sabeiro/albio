@@ -11,7 +11,13 @@ output:
 
 # Albio
 
+![lernia logo](docs/f_albio/logo_albio.svg "albio logo")
+
 Albio is a time series analysis library for statistical properties calculation and forecasts 
+
+![module_lernia](docs/f_albio/module_albio.svg "albio_module")
+albio module_
+
 
 ## modules descriptions
 
