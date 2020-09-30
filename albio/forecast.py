@@ -6,6 +6,16 @@ from sklearn.neural_network import MLPRegressor
 from statsmodels.tsa.arima_model import ARIMA
 import matplotlib.pyplot as plt
 
+def standardConf():
+    """standard configuration dictionary for the class"""
+    conf = {"arima":(1,2,1)}
+
+def to_date(t,dt="seconds"):
+    """convert list into datetime"""
+    today = datetime.datetime(2020, 1, 1)
+    ts = [today + datetime.timedelta(days=i+1) for i in t]
+    return ts
+    
 def add_delta(t,n=14,dt="seconds"):
     """add n days to existing prediction"""
     if dt == "days":
@@ -15,97 +25,130 @@ def add_delta(t,n=14,dt="seconds"):
     ts = list(t) + ts
     dt_idx = pd.DatetimeIndex(ts)
     return dt_idx
+    
+    
+class forecast():
+    """iterates and compares different forecast methods"""
+    def __init__(self, t, X, y):
+        self.t = t
+        self.X = X
+        self.y = y
 
-def forecast_lstm(t,x,y,n=14,*args):
-    """long short time memory"""
-    try:
-        from keras.models import Sequential
-        from keras.layers import LSTM,Dense
-        from keras.layers import Dropout
-        from sklearn.preprocessing import MinMaxScaler
-        from tensorflow.keras.preprocessing.sequence import TimeseriesGenerator
-    except:
-        print('tensorflow/keras not installed')
-        return t, y, y
-    dataset = pd.DataFrame(y)
-    data = np.array(y).reshape(-1, 1)
-    train_data = dataset[:len(dataset)-n]
-    test_data = dataset[len(dataset)-n:]
-    scaler = MinMaxScaler()
-    scaler.fit(dataset)
-    scaled_train_data = scaler.transform(train_data)
-    scaled_test_data  = scaler.transform(test_data)
-    n_input, n_features = n, 1
-    generator = TimeseriesGenerator(scaled_train_data,scaled_train_data,length=n_input,batch_size=1)
-    lstm_model = Sequential()
-    lstm_model.add(LSTM(units = 32, return_sequences = True, input_shape = (n_input, n_features)))
-    lstm_model.add(Dropout(0.2))
-    lstm_model.add(LSTM(units = 32, return_sequences = True))
-    lstm_model.add(Dropout(0.2))
-    lstm_model.add(LSTM(units = 32))
-    lstm_model.add(Dropout(0.2))
-    lstm_model.add(Dense(units = 1))
-    lstm_model.compile(optimizer = 'adam', loss = 'mean_squared_error')
-    lstm_model.fit(generator, epochs = 21)
-    losses_lstm = lstm_model.history.history['loss']
-    lstm_predictions_scaled = []
-    batch = scaled_test_data
-    current_batch = batch.reshape((1, n_input, n_features))
-    for i in range(n):   
-        lstm_pred = lstm_model.predict(current_batch)[0]
-        lstm_predictions_scaled.append(lstm_pred) 
-        current_batch = np.append(current_batch[:,1:,:],[[lstm_pred]],axis=1)
+    def lstm(self,*args,n=8):
+        """long short time memory"""
+        try:
+            from keras.models import Sequential
+            from keras.layers import LSTM,Dense
+            from keras.layers import Dropout
+            from sklearn.preprocessing import MinMaxScaler
+            from tensorflow.keras.preprocessing.sequence import TimeseriesGenerator
+        except:
+            print('tensorflow/keras not installed')
+            return t, y, y
+        dataset = pd.DataFrame(self.y)
+        data = np.array(self.y).reshape(-1, 1)
+        train_data = dataset[:len(dataset)-n]
+        test_data = dataset[len(dataset)-n:]
+        scaler = MinMaxScaler()
+        scaler.fit(dataset)
+        self.scaler = scaler
+        scaled_train_data = scaler.transform(train_data)
+        n_input, n_features = n, 1
+        generator = TimeseriesGenerator(scaled_train_data,scaled_train_data,length=n,batch_size=1)
+        model = Sequential()
+        model.add(LSTM(units = 32, return_sequences = True, input_shape = (n_input, n_features)))
+        model.add(Dropout(0.2))
+        model.add(LSTM(units = 32, return_sequences = True))
+        model.add(Dropout(0.2))
+        model.add(LSTM(units = 32))
+        model.add(Dropout(0.2))
+        model.add(Dense(units = 1))
+        model.compile(optimizer = 'adam', loss = 'mean_squared_error')
+        model.fit(generator, epochs = 21)
+        losses_lstm = model.history.history['loss']
+        self.lstm_model = model
 
-    prediction = pd.DataFrame(scaler.inverse_transform(lstm_predictions_scaled))
-    pred = np.concatenate((train_data,test_data,prediction),axis=0)[:,0]
-    ts = add_delta(t,n=n)
-    return ts, pred, {}
+    def lstm_forecast(self,t,X):
+        """forecast on lmts"""
+        n_input, n_features = len(t), X.shape[1]
+        lstm_predictions_scaled = []
+        scaled_test_data  = self.scaler.transform(X)
+        batch = scaled_test_data
+        current_batch = batch.reshape((1, n_input, n_features))
+        for i in range(n_input):
+            print(current_batch)
+            lstm_pred = self.lstm_model.predict(current_batch)[0]
+            lstm_predictions_scaled.append(lstm_pred) 
+            current_batch = np.append(current_batch[:,1:,:],[[lstm_pred]],axis=1)
+        y_pred = pd.DataFrame(self.scaler.inverse_transform(lstm_predictions_scaled))
+        return y_pred
 
-def mlp_regressor(t,X,y,test,n=14,*args):
-    """mlp regressor on time series"""
-    model = MLPRegressor(hidden_layer_sizes=[32, 32, 10], max_iter=50000, alpha=0.0005, random_state=26)
-    _ = model.fit(X.values, y)
-    pred = model.predict(test)
-    ts = add_delta(t,n=n)
-    return ts, pred, {}
+    def mlp_regressor(self,*args):
+        """mlp regressor on time series"""
+        model = MLPRegressor(hidden_layer_sizes=[32, 32, 10], max_iter=50000, alpha=0.0005, random_state=26)
+        _ = model.fit(self.X.values, self.y)
+        self.mlp_model = model
 
-def prophet(t,X,y,Xf,n=14,*args):
-    """prophet forecast"""
-    try:
-        from fbprophet import Prophet
-        from fbprophet.plot import plot_plotly, add_changepoints_to_plot
-    except:
-        print("fbprophet not installed")
-        return t, y, y
-    m = Prophet()
-    pr_data = pd.DataFrame({'ds':t,'y':y})
-    for i in X.columns:
-        pr_data.loc[:,i] = X[i]
-        m.add_regressor(i)
-    m.fit(pr_data)
-    future = m.make_future_dataframe(periods=n,freq='S')
-    for i in Xf.columns:
-        future.loc[:,i] = Xf[i]
-    forecast = m.predict(future)
-    ts = add_delta(t,n=n)
-    return future['ds'], forecast, {}
+        
+    def mlp_forecast(self,t,X):
+        """forecast with multilayer perceptron"""
+        y_pred = self.mlp_model.predict(X)
+        return y_pred
+        
 
-def arima(t,X,y,n=14,conf={},*args):
-    """arima autoregressive moving average"""
-    if conf == {}:
-        conf['arima'] = (1,2,1)
-    try:
-        model = ARIMA(y, order=order)
-        fit_model = model.fit(trend='c', full_output=True, disp=True)
-    except:
-        model = ARIMA(y, order=(1, 1, 1))
-        fit_model = model.fit(trend='c', full_output=True, disp=True)
-    fit_model.summary()
-    forcast = fit_model.forecast(steps=n)
-    pred_y = forcast[0].tolist()
-    pred = list(y) + pred_y
-    ts = add_delta(t,n=n)
-    return ts, pred, {}
+    def prophet(self,*args):
+        """prophet forecast"""
+        try:
+            from fbprophet import Prophet
+            from fbprophet.plot import plot_plotly, add_changepoints_to_plot
+        except:
+            print("fbprophet not installed")
+            return {}
+        model = Prophet()
+        pr_data = pd.DataFrame({'ds':to_date(self.t),'y':self.y})
+        # for i in self.X.columns:
+        #     pr_data.loc[:,i] = self.X[i].values
+        #     model.add_regressor(i)
+        model.fit(pr_data)
+        self.pro_model = model
+
+    def prophet_forecast(self,t,X):
+        """forecast a trained prophet"""
+        ts = to_date(t)
+        future = pd.DataFrame({"ds":ts})
+        # for i in X.columns:
+        #     future.loc[:,i] = X[i].values
+        # fL = future.columns
+        # fore = self.pro_model.predict(future.head(1))
+        # foreL = [fore]
+        # for i in range(len(t)-1):
+        #     print(fore[fL])
+        #     fore1 = self.pro_model.predict(fore[fL])
+        #     foreL.append(fore1)
+        #     fore = fore1
+        # forecast = pd.concat(foreL)
+        forecast = self.pro_model.predict(future)
+        return forecast
+
+    def arima(self,conf={},*args):
+        """arima autoregressive moving average"""
+        print(self.y)
+        if conf == {}:
+            conf['arima'] = (1,2,1)
+        try:
+            model = ARIMA(self.y, order=conf['arima'])
+            arm_model = model.fit(trend='c', full_output=True, disp=True)
+        except:
+            model = ARIMA(self.y, order=(1, 1, 1))
+            arm_model = model.fit(trend='c', full_output=True, disp=True)
+        self.arm_model = arm_model
+            
+    def arima_forecast(self,t,X):
+        """forecast using arima"""
+        n = len(t)
+        forcast = self.arm_model.forecast(steps=n)
+        y_pred = forcast[0].tolist()
+        return y_pred
 
 ##----------------------------trend-functions------------------------------
 def ser_poly(t, p):

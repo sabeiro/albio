@@ -16,6 +16,7 @@ from scipy.optimize import leastsq as least_squares
 from sklearn import linear_model
 from sklearn.decomposition import FastICA, PCA
 
+# import series_interp as s_i
 
 def serRunAv(y, steps=5):
     """perform a running average"""
@@ -40,6 +41,26 @@ def serRunAvDev(y, nInt=5):
         xf.append(np.mean(x[dn:dn1]))
         yf.append(np.mean(y[dn:dn1]))
     return x, yd, xf, yf
+
+def serDecompose(y,period=7,isPlot=False):
+    """decompose signal"""
+    serD = pd.DataFrame({'y':y})
+    serD.loc[:,"run_av"] = serRunAv(y,steps=period)
+    serD.loc[:,"smooth"] = serSmooth(y,width=3,steps=period)
+    serD['diff'] = serD['smooth'] - serD['smooth'].shift()
+    serD['grad'] = serD['diff'] - serD['diff'].shift()
+    serD['e_av'] = serD['y'].ewm(halflife=period).mean()
+    serD['stat'] = serD['run_av'] - serD['diff']
+    if isPlot:
+        plt.plot(serD['y'],label="raw")
+        plt.plot(serD['run_av'],label="run_av")
+        plt.plot(serD['smooth'],label="smooth")
+        plt.plot(serD['diff']+np.mean(serD['y']),label="diff")
+        plt.plot(serD['e_av'],label="e_av")
+        plt.plot(serD['stat'],label="stat")
+        plt.legend()
+        plt.show()
+    return serD
 
 
 def rem_nan(y):
@@ -108,7 +129,7 @@ def addNoise(y, noise=.2):
     return y * (1. + np.random.randn(len(y)) * noise)
 
 
-def phaseLag(y1, y2):
+def phaseLag(y1, y2, isPlot=False, ax=None):
     """returns phase lag between two signals"""
     t = np.linspace(0., 1., len(y1))
     # from dot product
@@ -117,18 +138,219 @@ def phaseLag(y1, y2):
     # from cross product
     adj = np.cross([np.cos(t), y1], [np.cos(t), y2], axis=0)
     phase_angle = np.arctan2(adj, opp)
+    n = len(y1)
+    t = np.linspace(-0.5*n, 0.5*n, n)
+    offset = t[np.argmax(phase_angle)]
+    if isPlot:
+        if ax == None:
+            fig, ax = plt.subplots(1,1)
+        # ax.plot(y1, label="first signal")
+        # ax.plot(y2, label="second signal")
+        # ax.plot(adj, label="adjust")
+        ax.plot(t,phase_angle, label="phase")
+        ax.axvline(x=offset,linestyle="-.",color="green")
+        ax.axvline(x=0,linestyle="--",color="red")
+        ax.set_ylabel('phase lag')
+        #ax.legend()
+    return offset, phase_angle
+
+def timeLag(y1, y2, isPlot=False, samples_per_second=10, ax=None):
+    """time lag between two signals"""
+    #w, h = sp.signal.freqs(y1, y2)
+    # w, h = sp.signal.freqz(y1, y2, 100)
+    # group_delay = -np.diff(np.unwrap(np.angle(h))) / np.diff(w)
+    # H = np.abs(h)**2
+    a = y1[1:] - y1[:-1]
+    b = y2[1:] - y2[:-1]
+    a = y1 - np.mean(y1)
+    b = y2 - np.mean(y2)
+    p_inst = a * b
+    s = np.sign(p_inst)
+    #s = s[s!=0]
+    sa = np.sign(a)
+    start = np.sign(np.mean(sa))
+    num_samples = len(s)
+    freq_Hz = 10.0
+    t = np.linspace(0.0, ((num_samples - 1) / samples_per_second), num_samples)
+    s_avg = np.trapz(s, x=t) / (t[-1] - t[0])
+    shift_fraction = s_avg / 2 + 0.5
+    phase_shift = start*(1 - shift_fraction) * np.pi
+    offset = t[np.argmax(phase_shift)]
+    #phase_shift = shift_fraction * np.pi
+    # ab_corr = np.correlate(y1, y2, "full")
+    # dt = np.linspace(-t[-1], t[-1], (2 * num_samples) - 1)
+    # t_shift_alt = (1.0 / samples_per_second) * ab_corr.argmax() - t[-1]
+    # t_shift = dt[ab_corr.argmax()]
+    # phase_shift = ((2.0 * np.pi) * ((t_shift / (1.0 / freq_Hz)) % 1.0)) - np.pi
+    if isPlot:
+        if ax == None:
+            fig, ax = plt.subplots(1,1)
+        ax.plot(p_inst,label="cross correlation")
+        ax.axvline(x=offset,linestyle="-.",color="green")
+        ax.axvline(x=len(phase_shit)/2,linestyle="--",color="red")
+    return offset, phase_shift
+    
+def maxLag(y1, y2, t=[None], isPlot=False, ax = None):
+    """max lag between two signals"""
+    n = len(y1)
+    norm = np.sqrt(sp.signal.correlate(y1, y1, mode='same')[int(n/2)]
+                   * sp.signal.correlate(y2, y2, mode='same')[int(n/2)])
+    corr = sp.signal.correlate(y2, y1, mode='same') / norm
+    if not any(t):
+        t = np.linspace(-0.5*n, 0.5*n, n)
+    delay = t[np.argmax(np.abs(corr))]
+    if isPlot:
+        if ax == None:
+            fig, ax = plt.subplots(1,1)
+        ax.plot(t, corr)
+        ax.axvline(x=0.,linestyle="--",color="red")
+        ax.axvline(x=delay,linestyle="-.",color="green")
+        #ax.set_title('Lag: ' + str(np.round(delay, 3)) + ' ')
+        ax.set_ylabel('correlation coeff')
+    return delay, corr
+
+def groupDelay(y1, y2, isPlot=False, ax=None):
+    """group delay between signals"""
+    w, group_delay = sp.signal.group_delay((y2, y1))
+    n2 = int(len(w)/2)
+    w = w - w[n2]
+    delay = w[np.argmax(group_delay)]
     if False:
-        plt.plot(y1, label="first signal")
-        plt.plot(y2, label="second signal")
-        plt.plot(adj, label="adjust")
-        plt.plot(phase_angle, label="phase")
+        w, h = sp.signal.freqz(y2, y1, 50)
+        group_delay = -np.diff(np.unwrap(np.angle(h))) / np.diff(w)
+    if isPlot :
+        if ax == None:
+            fig, ax = plt.subplots(1,1)
+        ax.plot(w, group_delay)
+        ax.axvline(x=0,linestyle="--",color="red")
+        ax.axvline(x=delay,linestyle="-.",color="green")
+        ax.set_ylabel('group delay')
+    return delay, group_delay
+
+def xcorLag(y1, y2, period=64, isPlot=False, ax=None):
+    """find the maximum of a cross correlation with lag"""
+    #xcor = [xCor( y1,shift(y2,lag) ) for lag in range(period)]
+    xcor = [sp.stats.pearsonr( y1,shift(y2,lag) )[0] for lag in range(period)]
+    if isPlot:
+        if ax == None:
+            fig, ax = plt.subplots(1,1)
+        ax.plot(xcor)
+        ax.axvline(x=len(xcor)/2,linestyle="--",color="red")
+        ax.set_ylabel("cross correlation")
+    return xcor
+
+
+def xcorMax(y1, y2, period=64, isPlot=False, ax=None):
+    """find the maximum of a cross correlation with lag"""
+    #xcor = [xCor( y1,shift(y2,lag) ) for lag in range(period)]
+    t = list(range(-period,period))
+    xcor = [sp.stats.pearsonr( y2,shift(y1,lag) )[0] for lag in t]
+    n = len(xcor)
+    t = np.linspace(-0.5*n, 0.5*n, n)
+    offset = t[np.argmax(xcor)]
+    if isPlot:
+        if ax == None:
+            fig, ax = plt.subplots(1,1)
+        ax.plot(t,xcor)
+        ax.axvline(x=0,linestyle="--",color="red")
+        ax.axvline(x=offset,linestyle="-.",color="green")
+        ax.set_ylabel("max cross corr")
+        #plt.axvline(0,color='k',linestyle='--',label='Center')
+        #plt.axvline(offset,color='r',linestyle='--',label='Peak synchrony')
+    return offset, xcor
+
+
+def xcorFft(y1, y2, isPlot=False, ax=None):
+    """time shift using fft"""
+    y1 = np.array(y1)
+    y2 = np.array(y2)
+    af = sp.fft.fft(y1)
+    bf = sp.fft.fft(y2)
+    xcor = sp.fft.ifft(af * np.conj(bf))
+    n = len(xcor)
+    t = np.linspace(-0.5*n, 0.5*n, n)
+    offset = t[ np.argmax(abs(xcor))]
+    if isPlot:
+        if ax == None:
+            fig, ax = plt.subplots(1,1)
+        ax.plot(t,xcor)
+        ax.axvline(x=0,linestyle="--",color="red")
+        ax.axvline(x=offset,linestyle="-.",color="green")
+        ax.set_ylabel("fft correlation")
+    return offset, xcor
+
+def xcorSer(y1, y2, isPlot=False, lab="cross correlation"):
+    """peak of cross correlation"""
+    from scipy.signal import correlate
+    xcorr = correlate(y1, y2)
+    dt = np.arange(1-len(y1), len(y1))
+    offset = dt[xcorr.argmax()]
+    if isPlot:
+        if ax == None:
+            fig, ax = plt.subplots(1,1)
+        ax.plot(dt,xcor)
+        ax.axvline(x=len(xcor)/2,linestyle="--",color="red")
+        ax.set_ylabel("fft correlation")
+    return offset, xcorr
+
+def xcorDecay(y1, y2, period=64, isPlot=False, lab="cross correlation"):
+    """signal decay on cross correlation"""
+    xcor = xcorLag(y1,y2)
+    t = np.linspace(0,len(xcor),len(xcor))
+    def ser_exp(x, t, p):
+        exp1 = np.exp(-x[0]*t)
+        return x[1]*exp1
+
+    def ser_residual(x, t, y, p):
+        return (y - ser_exp(x, t, p))
+
+    x0 = [1.,1.]
+    p0 = [0.,0.]
+    res, _ = least_squares(ser_residual, x0, args=(t, xcor, p0))
+    if isPlot:
+        plt.plot(xcor,label=lab)
+        plt.plot(ser_exp(res,t,p0),label=lab + " interpolation")
         plt.legend()
-        plt.show()
-    return phase_angle
+    return res, ser_exp(res,t,p0)
+
+
+def delayM(M,period=64):
+    """compute cross correlation between matrix columns"""
+    #cM = cross_funcM(M, xCor)
+    def func(y1,y2):
+        #offset, xcor = xcorMax(y1,y2,period=period)
+        #offset, xcor = xcorFft(y1,y2)
+        offset, xcor = maxLag(y1,y2)
+        #offset, xcor = xcorSer(y1,y2)
+        return offset
+    
+    colL = [x for x in M.columns]
+    N = len(colL)
+    cM = np.zeros((N, N))
+    for i in range(N):
+        cM[i, i] = func(M[colL[i]], M[colL[i]])
+        for j in range(i + 1, N):
+            cM[i, j] = func(M[colL[i]], M[colL[j]])
+            cM[j, i] = func(M[colL[j]], M[colL[i]])
+    return cM
+
+
+def lagMatrix(X):
+    """phase lag on a matrix"""
+    #lagM = cross_funcM(X,timeLag)
+    n = X.shape[1]
+    lagM = np.zeros((n,n))
+    for i, c in enumerate(X.columns):
+        for j, r in enumerate(X.columns):
+            lagM[i,j], _ = maxLag(X[c],X[r])
+    return lagM
 
 
 def interpMissing(y, isPlot=False):
     """interpolate missing"""
+    name = None
+    if isinstance(y, pd.Series):
+        name = y.name
     y = np.array(y)
     y = y.astype(np.float)
     nans = [x != x for x in y]
@@ -137,6 +359,8 @@ def interpMissing(y, isPlot=False):
     no_nan = [x == x for x in y]
     indices = np.arange(len(y))
     interp = np.interp(indices, indices[no_nan], y[no_nan])
+    if name:
+        interp = pd.Series(interp,name=name)
     if isPlot:
         plt.plot(interp)
         plt.plot(y)
@@ -149,6 +373,20 @@ def interpMissing(y, isPlot=False):
     nans, x = nan_helper(y)
     y[nans] = np.interp(x(nans), x(~nans), y[~nans])
     return y
+
+
+def interpMissingMatrix(X1, isPlot=False):
+    """interpolate every single columns"""
+    X = X1.copy()
+    cL = list(range(X.shape[1]))
+    if isinstance(X, pd.DataFrame):
+        cL = X.columns
+        for c in cL:
+            X.loc[:,c] = interpMissing(X1[c].values)
+    else:
+        for c in cL:
+            X[c] = interpMissing(X1[c])
+    return X
 
 
 def interpMissing2d(X, isPlot=False):
@@ -183,28 +421,74 @@ def missingDense(x, y, isDense=False, quant=0.7):
     return countL.index
 
 
-def corS(x, y):
+def shift(y,lag=0):
+    """shift and wrap array values"""
+    if lag == 0 : return y
+    shift = np.concatenate( (y[-lag:],y[:-lag]) )
+    # shift = y.shift(lag)
+    # shift.iloc[:lag] = y.iloc[-lag:].values
+    return shift
+
+
+def xCor(y1, y2):
     """compute a cross correlation between two signals"""
-    x1, x2, y1, y2, xy = (0,) * 5
-    N = x.shape[0]
-    xM, yM = x.mean(), y.mean()
-    for i in range(N):
-        xy += (x[i] - xM) * (y[i] - yM)
-        x2 += (x[i] - xM) ** 2
-        y2 += (y[i] - yM) ** 2
-    return (xy) / np.sqrt(x2 * y2)
+    xm1, xm2, ym1, ym2, xy = (0,) * 5
+    N = len(y1)
+    xM, yM = y1.mean(), y2.mean()
+    xy = sum( (y1-xM) * (y2-yM) )
+    xm2 = sum( (y1-xM)**2)
+    ym2 = sum( (y2-yM)**2)
+    xcor = (xy) / np.sqrt(xm2 * ym2)
+    #xcor = y1.corr(y2.shift(lag))
+    return xcor
 
 
-def corM(M):
+def spectrum(y, isPlot=False, lab="spectrum"):
+    """power spectrum of the signal"""
+    yf = np.abs(sp.fft.fft(y / y.max())) ** 2
+    freq = sp.fft.fftfreq(y.size, d=1. / 7.)
+    yf = yf[freq > 0]
+    if isPlot:
+        plt.plot(yf,alpha=0.5,label=lab)
+        plt.xscale("log")
+        plt.yscale("log")
+        plt.legend()
+    return yf
+
+
+def synchrony(y1, y2, period=64, isPlot=False, labV = ["rolling median 1","rolling median 2"]):
+    """syncronicity over a rolling window"""
+    y1 = pd.Series(y1).interpolate()
+    y2 = pd.Series(y2).interpolate()
+    rolling_r = y1.rolling(window=period, center=True).corr(y2)
+    if isPlot: 
+        fig , ax = plt.subplots(2,1,figsize=(14,6),sharex=True)
+        rolling_m1 = y1.rolling(window=period, center=True).median()
+        ax[0].plot(rolling_m1,label=labV[0])
+        rolling_m2 = y2.rolling(window=period, center=True).median()
+        ax[0].plot(rolling_m2,label=labV[1])
+        ax[0].set(xlabel='time',ylabel='values')
+        ax[0].legend()
+        rolling_r.plot(ax=ax[1])
+        ax[1].set(xlabel='time',ylabel='Pearson r')
+    return rolling_r
+
+
+def decayM(M,period=64):
     """compute cross correlation between matrix columns"""
+    #cM = cross_funcM(M, xCor)
+    def func(y1,y2):
+        res, xcor = xcorDecay(y1,y2,period=64)
+        return sum(xcor)/len(xcor)
+    
     colL = [x for x in M.columns]
     N = len(colL)
     cM = np.zeros((N, N))
     for i in range(N):
-        cM[i, i] = 1.;
+        cM[i, i] = func(M[colL[i]], M[colL[i]])
         for j in range(i + 1, N):
-            cM[i, j] = corS(webH[colL[i]], webH[colL[j]])
-            cM[j, i] = corS(webH[colL[i]], webH[colL[j]])
+            cM[i, j] = func(M[colL[i]], M[colL[j]])
+            cM[j, i] = func(M[colL[j]], M[colL[i]])
     return cM
 
 
@@ -255,10 +539,8 @@ def cross_funcM(M, func):
 
 def cross_corrM(M):
     """compute cross entropy between fields"""
-
     def func(x, y):
         return sp.stats.pearsonr(x, y)[0]
-
     return cross_funcM(M, func)
 
 
@@ -274,15 +556,19 @@ def applyNextM(M):
     return M1
 
 
-def decayM(M):
+def decayM1(M):
     """compute decay exponent from auto correlation"""
+    def ser_exp(x, t, p):
+        exp1 = np.exp(-x[0]*t)
+        return x[1]*exp1
+
     colL = [x for x in M.columns]
     acM = pd.DataFrame()
     for i in colL:
         r = M[i]
         X = np.array(range(0, r.size, 7))
-        popt, pcov = curve_fit(ser_exp, np.array(range(0, 6)), r[0:6] - min(r), p0=(1))
-        popt1, pcov1 = curve_fit(ser_exp, np.array(range(0, r.size, 7)), r[X], p0=(1))
+        popt, pcov = sp.optimize.curve_fit(ser_exp, np.array(range(0, 6)), r[0:6] - min(r), p0=(1))
+        popt1, pcov1 = sp.optimize.curve_fit(ser_exp, np.array(range(0, r.size, 7)), r[X], p0=(1))
         acM[i] = np.array([popt[0], pcov[0][0], popt1[0], pcov1[0][0]])
     return acM
 
@@ -376,7 +662,7 @@ def getCurveStat(y, isPlot=False):
     ym = (y - y.mean()) / y.mean()
     y3 = ym * ym * ym
     r = np.correlate(ym1, ym1, mode='full')[-n:]
-    assert np.allclose(r, np.array([(ym1[:n - k] * ym1[-(n - k):]).sum() for k in range(n)]))
+    # isClose = np.allclose(r, np.array([(ym1[:n - k] * ym1[-(n - k):]).sum() for k in range(n)]))
     autocor = r / (variance * (np.arange(n, 0, -1)))
     x = np.array([x for x in range(0, n)])
     xp = [i for (i, x) in enumerate(autocor) if x > 0]
@@ -390,8 +676,9 @@ def getCurveStat(y, isPlot=False):
 
     nInterp = min(48, len(y))
     popt, pcov = sp.optimize.curve_fit(expD, xp[:nInterp], yp[:nInterp], p0=[0.1])
-    yf = np.abs(sp.fftpack.fft(y / y.max())) ** 2
-    freq = sp.fftpack.fftfreq(y.size, d=1. / 7.)
+    #yf = np.abs(sp.fftpack.fft(y / y.max())) ** 2
+    yf = np.abs(sp.fft.fft(y / y.max())) ** 2
+    freq = sp.fft.fftfreq(y.size, d=1. / 7.)
     yf = yf[freq > 0]
     freq = freq[freq > 0]
     xl = np.array([np.log(x) for x in range(1, len(yf) + 1)])
@@ -407,31 +694,36 @@ def getCurveStat(y, isPlot=False):
         ax[0][0].hist(ym, bins=20, label="histogram")
         ax[0][0].set_xlabel("mean deviation")
         ax[0][0].set_ylabel("counts")
+        ax[0][0].set_yscale('log')
         ax[0][0].legend()
+        ax[0][1].set_title("autocorrelation")
         ax[0][1].plot(autocor, label="autocor")
         ax[0][1].plot(xp, yp, label="autocor positive")
         ax[0][1].plot(expD(x[:nInterp], *popt), label="interpolated")
-        ax[0][1].set_xlabel("lag (days)")
+        ax[0][1].set_xlabel("lag (deltat)")
         ax[0][1].set_ylabel("autocorrelation")
+        ax[0][1].set_xscale('log')
+        ax[0][1].set_yscale('log')
         ax[0][1].legend()
         ax[1][0].set_title("power spectrum interpolation")
         ax[1][0].plot(xl, yl, label="power spectrum")
         ax[1][0].plot(xl, linD(xl, *fopt), label="interpolation")
-        ax[1][0].set_xlabel("log lag (days)")
+        ax[1][0].set_xlabel("log lag (deltat)")
         ax[1][0].set_ylabel("log power")
         ax[1][0].legend()
         ax[1][1].set_title("autocorrelation decay")
         ax[1][1].set_title("harmonics")
         ax[1][1].plot(yf, label="power spectrum")
-        ax[1][1].axvline(x=7, color='b', linestyle='-', label="1 week")
-        ax[1][1].axvline(x=14, color='b', linestyle='-', label="2 week")
-        ax[1][1].axvline(x=21, color='b', linestyle='-', label="3 week")
-        ax[1][1].axvline(x=28, color='b', linestyle='-', label="4 week")
-        ax[1][1].set_xlabel("lag (days)")
+        # ax[1][1].axvline(x=7, color='b', linestyle='-', label="1 week")
+        # ax[1][1].axvline(x=14, color='b', linestyle='-', label="2 week")
+        # ax[1][1].axvline(x=21, color='b', linestyle='-', label="3 week")
+        # ax[1][1].axvline(x=28, color='b', linestyle='-', label="4 week")
+        ax[1][1].set_xlabel("lag (deltat)")
         ax[1][1].set_ylabel("power")
+        ax[1][1].set_yscale('log')
         ax[1][1].legend()
         plt.show()
-
+        
     return {"daily_visit": y.mean(), "auto_decay": popt[0], "noise_decay": fopt[0], "harm_week": f_w,
             "harm_biweek": f_biw, "y_var": y.var() / y.mean(), "y_skew": y3.sum(), "chi2": chiSq, "n_sample": n}
 

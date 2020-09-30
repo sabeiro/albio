@@ -10,6 +10,11 @@ import random
 import scipy as sp
 from scipy.optimize import least_squares
 
+def ser_exp(y, t, p):
+    """interpolating exponential function"""
+    exp1 = np.exp(-p[0]*t)
+    return p[1] * exp1
+
 
 def interpDoubleGauss(X, t, y, x0=[None], p0=[None]):
     """interpolate via double Gaussian"""
