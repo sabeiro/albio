@@ -124,6 +124,13 @@ def serKalman(y, R=0.01 ** 2):
     return xhat
 
 
+def numericColumn(df):
+    """return the continous columns"""
+    numerics = np.number
+    numerics = ['int16', 'int32', 'int64', 'float16', 'float32', 'float64']
+    tL = df.select_dtypes(include=numerics).columns
+    return tL
+    
 def addNoise(y, noise=.2):
     """add a portion of random gaussian noise"""
     return y * (1. + np.random.randn(len(y)) * noise)
@@ -630,6 +637,24 @@ def matNN(M):
             cM[i, j] = corS(webH[colL[i]], webH[colL[j]])
             cM[j, i] = corS(webH[colL[i]], webH[colL[j]])
     return cM
+
+def sampleEmpirical(x,pdf,bins=100,sampleN=100):
+    """sample data following an empirical distribution"""
+    pdf = [x/sum(pdf) for x in pdf]
+    x2 = np.linspace(min(x),max(x),bins)
+    densF = np.interp(x2,x,pdf)
+    norm = sum(densF)
+    densF = densF
+    cdf = np.cumsum(densF)
+    p = np.zeros_like(densF,dtype=int)
+    y = np.zeros(sampleN)
+    for k in np.arange(sampleN):
+        a = np.random.uniform(0, norm)
+        b = np.argmax(cdf>=a)
+        y[k] = x2[b]
+        p[b] += 1
+    p = p/np.sum(p)*norm
+    return x2, p, y
 
 
 def serTestStat(timeseries):
