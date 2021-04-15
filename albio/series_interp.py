@@ -10,11 +10,33 @@ import random
 import scipy as sp
 from scipy.optimize import least_squares
 
-def ser_exp(y, t, p):
+def fun_exp(x, t, p=[]):
     """interpolating exponential function"""
     exp1 = np.exp(-p[0]*t)
     return p[1] * exp1
 
+def fun_gauss(x, t, p=[]):
+    """gaussian fit"""
+    exp2 = x[2]+np.exp(-np.power(t - x[0], 2.) * x[1])
+    return p[0] * exp2
+
+def sigmoid(x, t, p=[]):
+    """interpolating sigmoid function"""
+    y = 1. / (1 + np.exp(-x[1]*(t-x[0]) ) ) + 0.
+    return y
+    
+def regression(t,y,x0=[1.,1.,1.,1.,1.,1.,1.],p0=[1.,1.,1.,1.,1.,1.,1.],how="gauss"):
+    """least square regression"""
+    fun = fun_gauss
+    if how == "exp_decay":
+        fun = fun_exp
+    elif how == "sigmoid":
+        fun = sigmoid
+    def residual(x, t, y, p):
+        return (y - fun(x, t, p))
+
+    res = least_squares(residual, x0, args=(t, y, p0), method="trf", loss="soft_l1") 
+    return res
 
 def interpDoubleGauss(X, t, y, x0=[None], p0=[None]):
     """interpolate via double Gaussian"""

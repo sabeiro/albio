@@ -96,7 +96,7 @@ class forecast():
         return y_pred
         
 
-    def prophet(self,*args):
+    def prophet(self,dt="seconds",*args):
         """prophet forecast"""
         try:
             from fbprophet import Prophet
@@ -105,16 +105,16 @@ class forecast():
             print("fbprophet not installed")
             return {}
         model = Prophet()
-        pr_data = pd.DataFrame({'ds':to_date(self.t),'y':self.y})
+        pr_data = pd.DataFrame({'ds':to_date(self.t,dt=dt),'y':self.y})
         # for i in self.X.columns:
         #     pr_data.loc[:,i] = self.X[i].values
         #     model.add_regressor(i)
         model.fit(pr_data)
         self.pro_model = model
 
-    def prophet_forecast(self,t,X):
+    def prophet_forecast(self,t,X,dt="seconds"):
         """forecast a trained prophet"""
-        ts = to_date(t)
+        ts = to_date(t,dt=dt)
         future = pd.DataFrame({"ds":ts})
         # for i in X.columns:
         #     future.loc[:,i] = X[i].values
@@ -126,7 +126,7 @@ class forecast():
         #     fore1 = self.pro_model.predict(fore[fL])
         #     foreL.append(fore1)
         #     fore = fore1
-        # forecast = pd.concat(foreL)
+        # forecast = pd.concat(foreL)e
         forecast = self.pro_model.predict(future)
         return forecast
 
@@ -180,22 +180,22 @@ def ser_exp(t, decay):
     return np.exp(-decay * t)
 
 
-def poly_4(t,x,y,n=14,x0=[None],*args):
+def poly_4(t,x,y,n=14,x0=[None],dt="seconds",*args):
     """polynomial 4th grade"""
     if x0[0] == None:
         x0 = np.ones(10)
-    t1 = add_delta(t,n=n)
+    t1 = add_delta(t,n=n,dt=dt)
     ts = np.array([x.timestamp() for x in t])
     ts1 = np.array([x.timestamp() for x in t1])
     res_lsq = least_squares(ser_residuals,x0,args=(ts,y))
     poly = [ser_poly(x,res_lsq[0]) for x in ts1]
     return ts, poly, res_lsq[0]
 
-def bi_week(t,x,y,n=14,x0=[None],*args):
+def bi_week(t,x,y,n=14,x0=[None],dt="seconds",*args):
     """bi weekly frequencies"""
     if x0[0] == None:
         x0 = np.ones(10)
-    t1 = add_delta(t,n=n)
+    t1 = add_delta(t,n=n,dt=dt)
     ts = [x.timestamp() for x in t]
     ts1 = [x.timestamp() for x in t1]
     f = [(2.*np.pi)/7.,(2.*np.pi)/14.]
@@ -204,14 +204,14 @@ def bi_week(t,x,y,n=14,x0=[None],*args):
     return ts, poly, res_lsq[0]
 
 
-def trendFluct(t,x,y,n=14,conf={},isPlot=False,*args):
+def trendFluct(t,x,y,n=14,conf={},isPlot=False,dt="seconds",*args):
     """predict the signal decomposing the trend from the fluctuations"""
     if conf == {}:
         conf['poly'] = np.ones(10)
         conf['sin'] = np.ones(10)
     orig = t[0].timestamp()
     ts = np.array([x.timestamp() - orig for x in t])
-    t1 = add_delta(t,n=n)
+    t1 = add_delta(t,n=n,dt=dt)
     ts1 = np.array([x.timestamp() - orig for x in t1])
     ts = ts/(3600*24)
     ts1 = ts1/(3600*24)
