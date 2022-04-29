@@ -1,4 +1,5 @@
 import os, sys, gzip, random, json, datetime, re, io
+import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
@@ -6,67 +7,62 @@ import matplotlib
 import cv2
 import io
 
-dL = os.listdir(os.environ['HOME']+'/lav/src/')
-sys.path = list(set(sys.path + [os.environ['HOME']+'/lav/src/'+x for x in dL]))
-baseDir = os.environ['HOME'] + '/lav/viudi/graphic/logo_cnc/'
+def metaImg(img):
+    colorL = ['red','blue','green']
+    r, g, b = np.mean(img[:,:,0]), np.mean(img[:,:,1]), np.mean(img[:,:,2])
+    bright = np.mean([r,g,b])
+    color = colorL[np.argmax([r,g,b])]
+    metaD = {"red":r,"blue":b,"green":g,"bright":bright,"color":color}
+    return metaD
 
-laserMax = 500
-conf = {"x":200,"y":150,"min":0.1,"max":0.9,"res":3.5,"rotate":True,"fname":"soci2.jpg"}
-conf['min'] = int(laserMax*conf['min'])
-conf['max'] = int(laserMax*conf['max'])
-delta = 1/conf['res']
-imgF = baseDir + conf['fname']
-img = mpimg.imread(imgF)
-if conf["rotate"]: img = img.transpose(1,0,2)
-aspect = img.shape[0]/img.shape[1]
-conf['width'] = int(conf['x']*conf['res']) + 1
-conf['height'] = int(conf['width']*aspect) + 1
-conf['y'] = int(conf['height']/conf['res'])  
-res = cv2.resize(img, dsize=(conf['width'], conf['height']), interpolation=cv2.INTER_CUBIC)
-if False: # gradient
-    for i in range(res.shape[0]):
-        for j in range(res.shape[1]):
-            z = 4*j #+ 2*i
-            res[i,j] = [z,z,z]
-            
-plt.imshow(res)
-plt.show()
+def imgDec(img):
+    colorV = [(255,0,0),(0,255,0),(0,0,255)]
+    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    _, binary = cv2.threshold(gray, 150, 255, cv2.THRESH_BINARY_INV)
+    # _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    cannyL, grayL = img.copy(), img.copy()
+    thres, colorT = np.zeros(img.shape), np.zeros(img.shape)
+    for j in range(3):
+        grayL[:,:,j] = gray
+        for k in [50,100,150,200]:
+            colV = np.zeros(3)
+            colV[j] = k
+            thres[:,:,j] = (img[:,:,j] > k)*k
+            colT = np.array(thres[:,:,j],dtype = np.uint8)
+            contours, hierarchy = cv2.findContours(colT,cv2.RETR_TREE,cv2.CHAIN_APPROX_SIMPLE)
+            cv2.drawContours(image=colorT,contours=contours,contourIdx=-1,color=colV,thickness=1,lineType=cv2.LINE_AA)
+        canny = cv2.Canny(colT,140,255)
+        cannyL[:,:,j] = canny
+    cannyL = np.array(cannyL,dtype = np.uint8)
+    grayL = np.array(grayL,dtype = np.uint8)
+    #cv2.watershed(road, marker_image_copy)
+    metaD = metaImg(img)
+    return [thres, colorT, cannyL, grayL], metaD
 
-init = "$32=1\n(image to laser)\nG90\nG0 X0 Y0\nM3 S0\nF5000\n"
-init = "G21 ; Set units to mm\n\
-G90 ; Use absolute coordinates\n\
-S0  ; Power off laser i.e. PWM=0\n\
-M3  ; Activate Laser with dynamics\n\
-F1500 ; Set speed\n"
-
-cmdS = init
-#cmdS += "G1 Z10\n"
-x, y, s = 0, 0, 1
-for i in range(res.shape[0]):
-    i1 = int(y/conf['y']*conf['height'] - 0.0001)
-    for j in range(res.shape[1]):
-        x += s*delta
-        if x > conf['x']: x = conf['x']; break
-        if x < 0: x = 0; break
-        j1 = int(x/conf['x']*conf['width'] - 0.0001)
-        z = int(np.mean(res[i1,j1]))
-        z = laserMax - int(z/255*laserMax)
-        if z > conf['max']: z = conf['max']
-        if z < conf['min']: continue
-        st = "G1 X%.1f \nS%d\n" % (x,z)
-        cmdS += st
-    s *= -1
-    y += delta
-    if y > conf['y']: y = conf['y']; break
-    x = conf['x'] if s < 0 else 0
-    st = "G1 Y%.1f \nS%d\n" % (y,0)
-    cmdS += st
-
-cmdS += "M5\nG0 X0 Y0 Z0"
-
-fName = imgF.split(".")[0] + ".nc"
-with io.open(fName,"w",newline='\r\n') as f:
-    f.write(cmdS)
-    f.close()
-
-
+def watershed(img):
+    ### to debug - skimage is not loading
+    from skimage.feature import peak_local_max
+    from skimage.morphology import watershed
+    from scipy import ndimage
+    import imutils
+    op1 = cv2.pyrMeanShiftFiltering(img, 21, 51)
+    gray = cv2.cvtColor(op1, cv2.COLOR_BGR2GRAY)
+    thres = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
+    cv2.imshow("Thresholded_image", thres)
+    EDT = ndimage.distance_transform_edt(thres)
+    localMax = peak_local_max(EDT, indices=False, min_distance=20, labels=thres)
+    imagemarkers = ndimage.label(localMax, structure=np.ones((3, 3)))[0]
+    resultinglabels = watershed(-EDT, imagemarkers, mask=imagethreshold)
+    for eachlabel in np.unique(resultinglabels):
+        if eachlabel == 0:
+            continue
+    objectmask = np.zeros(imagegray.shape, dtype="uint8")
+    objectmask[resultinglabels == eachlabel] = 255
+    objects = cv2.findContours(objectmask.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    objects = imutils.grab_contours(objects)
+    result = max(objects, key=cv2.contourArea)
+    ((x, y), r) = cv2.minEnclosingCircle(result)
+    cv2.circle(imageread, (int(x), int(y)), int(r), (0, 255, 0), 2)
+    cv2.putText(imageread, "#{}".format(eachlabel), (int(x) - 10, int(y)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+    cv2.imshow("Output_image", imageread)
+    cv2.waitKey(0)
